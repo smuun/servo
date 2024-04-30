@@ -6,7 +6,11 @@ use core::f32;
 use esp_backtrace as _;
 use esp_hal::{
     analog::adc::{AdcCalLine, AdcConfig, Attenuation, ADC},
-    clock::ClockControl, delay::Delay, gpio::{GpioPin, Output, PushPull, IO}, peripherals::{Peripherals, ADC1}, prelude::*, xtensa_lx::interrupt::get
+    clock::ClockControl,
+    delay::Delay,
+    gpio::IO,
+    peripherals::{Peripherals, ADC1},
+    prelude::*,
 };
 use esp_println::println;
 
@@ -19,11 +23,11 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
 
-
     type AdcCal = AdcCalLine<ADC1>;
     let pot_pin = io.pins.gpio1.into_analog();
     let mut adc1_config = AdcConfig::<ADC1>::new();
-    let mut adc1_pin = adc1_config.enable_pin_with_cal::<_, AdcCal>(pot_pin, Attenuation::Attenuation11dB);
+    let mut adc1_pin =
+        adc1_config.enable_pin_with_cal::<_, AdcCal>(pot_pin, Attenuation::Attenuation11dB);
     let mut adc1 = ADC::<ADC1>::new(peripherals.ADC1, adc1_config);
 
     let mut highest = 3.41;
@@ -35,11 +39,9 @@ fn main() -> ! {
 
     let mut cal = false;
 
-    let mut get_voltage = || {
-        nb::block!(adc1.read_oneshot(&mut adc1_pin)).unwrap() as f32 / 1000.00
-    };
+    let mut get_voltage = || nb::block!(adc1.read_oneshot(&mut adc1_pin)).unwrap() as f32 / 1000.00;
     while !cal {
-        let voltage = get_voltage(); 
+        let voltage = get_voltage();
         cal = cal_pin.is_low();
         if voltage > highest {
             highest = voltage;
@@ -75,7 +77,6 @@ fn main() -> ! {
         (on, off)
     };
 
-
     loop {
         let (on, off) = get_on_off();
         servo_pin.set_low();
@@ -83,5 +84,4 @@ fn main() -> ! {
         servo_pin.set_high();
         delay.delay_nanos(on);
     }
-    
 }
