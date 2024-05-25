@@ -9,36 +9,13 @@ use esp_hal::{
     clock::ClockControl,
     delay::Delay,
     gpio::IO,
-    peripherals::{Peripherals, ADC1},
+    peripherals::{Peripherals, ADC1, SYSTEM},
     prelude::*,
+    system::SystemParts,
 };
 use esp_println::println;
 
 type AdcCal = AdcCalLine<ADC1>;
-
-fn setup() -> (
-    IO,
-    esp_hal::gpio::GpioPin<esp_hal::gpio::Analog, 1>,
-    esp_hal::analog::adc::AdcPin<
-        esp_hal::gpio::GpioPin<esp_hal::gpio::Analog, 1>,
-        ADC1,
-        AdcCalLine<ADC1>,
-    >,
-    ADC<'static, ADC1>,
-    Delay,
-) {
-    let peripherals = Peripherals::take();
-    let system = peripherals.SYSTEM.split();
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-    let delay = Delay::new(&clocks);
-    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-    let mut adc1_config = AdcConfig::<ADC1>::new();
-    let mut adc1 = ADC::<ADC1>::new(peripherals.ADC1, adc1_config);
-    let pot_pin = io.pins.gpio1.into_analog();
-    let mut adc1_pin =
-        adc1_config.enable_pin_with_cal::<_, AdcCal>(pot_pin, Attenuation::Attenuation11dB);
-    (io, pot_pin, adc1_pin, adc1, delay)
-}
 
 fn calibrate(
     delay: &Delay,
@@ -88,7 +65,18 @@ fn get_on_off(
 
 #[entry]
 fn main() -> ! {
-    let (io, pot_pin, adc1_pin, adc1, delay) = setup();
+    let peripherals = Peripherals::take();
+    let system = peripherals.SYSTEM.split();
+
+    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    let delay = Delay::new(&clocks);
+
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+    let mut adc1_config = AdcConfig::<ADC1>::new();
+    let pot_pin = io.pins.gpio1.into_analog();
+    let mut adc1_pin =
+        adc1_config.enable_pin_with_cal::<_, AdcCal>(pot_pin, Attenuation::Attenuation11dB);
+    let mut adc1 = ADC::<ADC1>::new(peripherals.ADC1, adc1_config);
 
     let mut get_voltage = || nb::block!(adc1.read_oneshot(&mut adc1_pin)).unwrap() as f32 / 1000.00;
 
