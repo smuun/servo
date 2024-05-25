@@ -9,9 +9,9 @@ use esp_hal::{
     clock::ClockControl,
     delay::Delay,
     gpio::IO,
-    peripherals::{Peripherals, ADC1, SYSTEM},
+    peripherals::{Peripherals, ADC1},
+    mcpwm,
     prelude::*,
-    system::SystemParts,
 };
 use esp_println::println;
 
@@ -67,11 +67,11 @@ fn get_on_off(
 fn main() -> ! {
     let peripherals = Peripherals::take();
     let system = peripherals.SYSTEM.split();
-
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-    let delay = Delay::new(&clocks);
 
+    let delay = Delay::new(&clocks);
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+
     let mut adc1_config = AdcConfig::<ADC1>::new();
     let pot_pin = io.pins.gpio1.into_analog();
     let mut adc1_pin =
