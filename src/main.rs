@@ -1,19 +1,35 @@
-//! Uses timer0 and operator0 of the MCPWM0 peripheral to output a 50% duty
-//! signal at 20 kHz.
-//!
-//! The signal will be output to the pin assigned to `pin`. (GPIO0)
-
-//% CHIPS: esp32 esp32c6 esp32h2 esp32s3
-
 #![no_std]
 #![no_main]
 
-use embedded_svc::timer;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::{self, ClockControl}, delay::Delay, gpio::IO, mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, PeripheralClockConfig, MCPWM}, peripherals::Peripherals, prelude::*
+    clock::ClockControl,
+    delay::Delay,
+    gpio::IO,
+    mcpwm::{
+        operator::{PwmPin, PwmPinConfig},
+        timer::PwmWorkingMode,
+        PeripheralClockConfig, MCPWM,
+    },
+    peripherals::Peripherals,
+    prelude::*,
 };
 use esp_println::println;
+
+fn get_pulse(angle: i32) -> u16 {
+    if angle > 180 || angle < 0 {
+        panic!("angle OOB");
+    }
+
+    let min = 050;
+    let max = 250;
+
+    let scaled_angle = angle as i32 * 1000;
+    let percentage = (scaled_angle + 90) / 180;
+    let res = min + ((max - min) * percentage) / 1000;
+    println!("{}", res);
+    res as u16
+}
 
 #[entry]
 fn main() -> ! {
@@ -36,24 +52,21 @@ fn main() -> ! {
         .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
 
     let timer_clock_cfg = clock_cfg
-        .timer_clock_with_frequency(200, PwmWorkingMode::Increase, 50.Hz()).unwrap();
+        .timer_clock_with_frequency(2000, PwmWorkingMode::Increase, 50.Hz())
+        .unwrap();
 
-    println!("timer frequency {fq}", fq=timer_clock_cfg.frequency());
+    println!("timer frequency {fq}", fq = timer_clock_cfg.frequency());
     mcpwm.timer0.start(timer_clock_cfg);
 
-
-    let min = 05;
-    let zero = 15;
-    let max = 25;
     loop {
         println!("min");
-        pwm_pin.set_timestamp(min);
+        pwm_pin.set_timestamp(get_pulse(0));
         delay.delay_millis(2000);
         println!("zero");
-        pwm_pin.set_timestamp(zero);
+        pwm_pin.set_timestamp(get_pulse(90));
         delay.delay_millis(2000);
         println!("max");
-        pwm_pin.set_timestamp(max);
+        pwm_pin.set_timestamp(get_pulse(180));
         delay.delay_millis(2000);
     }
 }
