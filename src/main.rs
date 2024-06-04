@@ -8,13 +8,10 @@
 #![no_std]
 #![no_main]
 
+use embedded_svc::timer;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl,
-    gpio::IO,
-    mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, PeripheralClockConfig, MCPWM},
-    peripherals::Peripherals,
-    prelude::*,
+    clock::{self, ClockControl}, delay::Delay, gpio::IO, mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, PeripheralClockConfig, MCPWM}, peripherals::Peripherals, prelude::*
 };
 use esp_println::println;
 
@@ -24,33 +21,39 @@ fn main() -> ! {
     let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
+    let delay = Delay::new(&clocks);
+
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let pin = io.pins.gpio0;
 
-    // initialize peripheral
-    #[cfg(feature = "esp32h2")]
-    let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 40.MHz()).unwrap();
-    #[cfg(not(feature = "esp32h2"))]
-    let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 32.MHz()).unwrap();
+    let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX);
 
     let mut mcpwm = MCPWM::new(peripherals.MCPWM0, clock_cfg);
 
-    // connect operator0 to timer0
     mcpwm.operator0.set_timer(&mcpwm.timer0);
-    // connect operator0 to pin
     let mut pwm_pin = mcpwm
         .operator0
         .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
 
-    // start timer with timestamp values in the range of 0..=99 and a frequency of
-    // 20 kHz
     let timer_clock_cfg = clock_cfg
-        .timer_clock_with_frequency(50, PwmWorkingMode::Increase, 1.MHz())
-        .unwrap();
+        .timer_clock_with_frequency(200, PwmWorkingMode::Increase, 50.Hz()).unwrap();
+
+    println!("timer frequency {fq}", fq=timer_clock_cfg.frequency());
     mcpwm.timer0.start(timer_clock_cfg);
 
-    pwm_pin.set_timestamp(2);
 
+    let min = 05;
+    let zero = 15;
+    let max = 25;
     loop {
+        println!("min");
+        pwm_pin.set_timestamp(min);
+        delay.delay_millis(2000);
+        println!("zero");
+        pwm_pin.set_timestamp(zero);
+        delay.delay_millis(2000);
+        println!("max");
+        pwm_pin.set_timestamp(max);
+        delay.delay_millis(2000);
     }
 }
