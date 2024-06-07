@@ -1,11 +1,17 @@
 #![no_std]
 #![no_main]
 
-use esp_backtrace as _;
 use esp_hal::{
-    clock::{ClockControl, Clocks}, delay::Delay, gpio::IO, mcpwm::{
-        operator::{PwmPin, PwmPinConfig}, timer::PwmWorkingMode, PeripheralClockConfig, PwmPeripheral, MCPWM
-    }, peripheral, peripherals::{Peripherals, MCPWM0, SYSTEM}, prelude::*, system::SystemParts
+    clock::ClockControl,
+    delay::Delay,
+    gpio::IO,
+    mcpwm::{
+        operator::PwmPinConfig,
+        timer::PwmWorkingMode,
+        PeripheralClockConfig, MCPWM,
+    },
+    peripherals::Peripherals,
+    prelude::*,
 };
 use esp_println::println;
 
@@ -20,65 +26,46 @@ fn get_pulse(angle: i32) -> u16 {
     let scaled_angle = angle as i32 * 1000;
     let percentage = (scaled_angle + 90) / 180;
     let res = min + ((max - min) * percentage) / 1000;
+    println!("{}", res);
     res as u16
-}
-
-struct ESPSystem<'a> {
-    delay: Delay,
-    io: IO,
-    clock_cfg: PeripheralClockConfig<'a>,
-    mcpwm: MCPWM<'a, esp_hal::peripherals::MCPWM0, >,
-}
-
-fn init_system<'a>() -> ESPSystem<'a> {
-    let peripherals = Peripherals::take();
-    let system = peripherals.SYSTEM.split();
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-    let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX);
-    let delay = Delay::new(&clocks);
-    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-
-    let mcpwm = MCPWM::new(peripherals.MCPWM0, clock_cfg);
-
-    ESPSystem {
-        delay,
-        io,
-        clock_cfg,
-        mcpwm,
-    }
 }
 
 #[entry]
 fn main() -> ! {
-    let mut system: ESPSystem = init_system();
+    let peripherals = Peripherals::take();
+    let system = peripherals.SYSTEM.split();
+    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
+    let delay = Delay::new(&clocks);
 
-    let pin = system.io.pins.gpio0;
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
+    let pin = io.pins.gpio0;
 
-    system.mcpwm.operator0.set_timer(&system.mcpwm.timer0);
-    let mut pwm_pin = system.mcpwm
+    let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX);
+
+    let mut mcpwm = MCPWM::new(peripherals.MCPWM0, clock_cfg);
+
+    mcpwm.operator0.set_timer(&mcpwm.timer0);
+    let mut pwm_pin = mcpwm
         .operator0
         .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
 
-    // actually this results in something like 52 hz -- does not matter for servos, but the angles will be slightly off.
-    let timer_clock_cfg = system.clock_cfg
+    let timer_clock_cfg = clock_cfg
         .timer_clock_with_frequency(2000, PwmWorkingMode::Increase, 50.Hz())
         .unwrap();
 
     println!("timer frequency {fq}", fq = timer_clock_cfg.frequency());
-    system.mcpwm.timer0.start(timer_clock_cfg);
+    mcpwm.timer0.start(timer_clock_cfg);
 
-    let mut i = 0;
-    let mut countdown = false;
     loop {
-        if i > 180 {
-            countdown = !countdown;
-            i = 0;
-
-        }
-        let angle = if countdown {180 - i} else {i};
-        pwm_pin.set_timestamp(get_pulse(angle));
-        i += 1;
-        system.delay.delay_millis(5);
+        println!("min");
+        pwm_pin.set_timestamp(get_pulse(0));
+        delay.delay_millis(2000);
+        println!("zero");
+        pwm_pin.set_timestamp(get_pulse(90));
+        delay.delay_millis(2000);
+        println!("max");
+        pwm_pin.set_timestamp(get_pulse(180));
+        delay.delay_millis(2000);
     }
 }
