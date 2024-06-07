@@ -23,14 +23,14 @@ fn get_pulse(angle: i32) -> u16 {
     res as u16
 }
 
-struct ESPSystem {
+struct ESPSystem<'a> {
     delay: Delay,
     io: IO,
-    clock_cfg: PeripheralClockConfig<'static>,
-    mcpwm: MCPWM<'static, esp_hal::peripherals::MCPWM0, > 
+    clock_cfg: PeripheralClockConfig<'a>,
+    mcpwm: MCPWM<'a, esp_hal::peripherals::MCPWM0, >,
 }
 
-fn init_system<'a>() -> ESPSystem {
+fn init_system<'a>() -> ESPSystem<'a> {
     let peripherals = Peripherals::take();
     let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();

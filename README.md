@@ -1,12 +1,10 @@
-Rust on the Heltec wifi v3 board.
+# Rust on the Heltec wifi v3 board.
 
-Working:
-- PWM signal from pot input
-- servo driver
-- blinking leds etc
+## Dev notes
 
-
-Plan:
-- PWM with interrupts
-- scheduler (maybe) or rtos
-- oled
+- [ ] refactor: peripherals init
+- [ ] refactor: atomic functions
+- [ ] implement 3 concurrent servo signals
+- [ ] implement magnetometer controls angle
+- [ ] build arm structure
+- [ ] implement arm tracks magnet position
