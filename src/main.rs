@@ -45,17 +45,17 @@ fn main() -> ! {
     let mut mcpwm = MCPWM::new(peripherals.MCPWM0, clock_cfg);
 
     mcpwm.operator0.set_timer(&mcpwm.timer0);
-    let mut servo_x = mcpwm
+    let mut beta = mcpwm
         .operator0
         .with_pin_a(pin0, PwmPinConfig::UP_ACTIVE_HIGH);
 
     mcpwm.operator1.set_timer(&mcpwm.timer1);
-    let mut servo_y = mcpwm
+    let mut alpha = mcpwm
         .operator1
         .with_pin_a(pin1, PwmPinConfig::UP_ACTIVE_HIGH);
 
     mcpwm.operator2.set_timer(&mcpwm.timer2);
-    let mut servo_z = mcpwm
+    let mut phi = mcpwm
         .operator2
         .with_pin_a(pin2, PwmPinConfig::UP_ACTIVE_HIGH);
 
@@ -70,19 +70,13 @@ fn main() -> ! {
 
     loop {
         println!("min");
-        servo_x.set_timestamp(get_pulse(0));
-        servo_y.set_timestamp(get_pulse(0));
-        servo_z.set_timestamp(get_pulse(0));
+        phi.set_timestamp(get_pulse(0));
         delay.delay_millis(2000);
         println!("zero");
-        servo_x.set_timestamp(get_pulse(90));
-        servo_y.set_timestamp(get_pulse(90));
-        servo_z.set_timestamp(get_pulse(90));
+        phi.set_timestamp(get_pulse(90));
         delay.delay_millis(2000);
         println!("max");
-        servo_x.set_timestamp(get_pulse(180));
-        servo_y.set_timestamp(get_pulse(180));
-        servo_z.set_timestamp(get_pulse(180));
+        phi.set_timestamp(get_pulse(180));
         delay.delay_millis(2000);
     }
 }
