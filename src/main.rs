@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
@@ -20,7 +21,7 @@ fn get_pulse(angle: i32) -> u16 {
         panic!("angle OOB");
     }
 
-    let min = 050;
+    let min = 50;
     let max = 250;
 
     let scaled_angle = angle as i32 * 1000;
