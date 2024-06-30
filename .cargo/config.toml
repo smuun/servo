@@ -14,3 +14,6 @@ target = "xtensa-esp32s3-none-elf"
 
 [unstable]
 build-std = ["alloc", "core"]
+
+[profile.release]
+debug = true
