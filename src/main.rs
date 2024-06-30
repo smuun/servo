@@ -6,11 +6,7 @@ use esp_hal::{
     clock::ClockControl,
     delay::Delay,
     gpio::IO,
-    mcpwm::{
-        operator::PwmPinConfig,
-        timer::PwmWorkingMode,
-        PeripheralClockConfig, MCPWM,
-    },
+    mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, PeripheralClockConfig, MCPWM},
     peripherals::Peripherals,
     prelude::*,
 };
@@ -40,16 +36,28 @@ fn main() -> ! {
     let delay = Delay::new(&clocks);
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-    let pin = io.pins.gpio0;
+    let pin0 = io.pins.gpio0;
+    let pin1 = io.pins.gpio7;
+    let pin2 = io.pins.gpio5;
 
     let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX);
 
     let mut mcpwm = MCPWM::new(peripherals.MCPWM0, clock_cfg);
 
     mcpwm.operator0.set_timer(&mcpwm.timer0);
-    let mut pwm_pin = mcpwm
+    let mut servo_x = mcpwm
         .operator0
-        .with_pin_a(pin, PwmPinConfig::UP_ACTIVE_HIGH);
+        .with_pin_a(pin0, PwmPinConfig::UP_ACTIVE_HIGH);
+
+    mcpwm.operator1.set_timer(&mcpwm.timer1);
+    let mut servo_y = mcpwm
+        .operator1
+        .with_pin_a(pin1, PwmPinConfig::UP_ACTIVE_HIGH);
+
+    mcpwm.operator2.set_timer(&mcpwm.timer2);
+    let mut servo_z = mcpwm
+        .operator2
+        .with_pin_a(pin2, PwmPinConfig::UP_ACTIVE_HIGH);
 
     let timer_clock_cfg = clock_cfg
         .timer_clock_with_frequency(2000, PwmWorkingMode::Increase, 50.Hz())
@@ -57,16 +65,24 @@ fn main() -> ! {
 
     println!("timer frequency {fq}", fq = timer_clock_cfg.frequency());
     mcpwm.timer0.start(timer_clock_cfg);
+    mcpwm.timer1.start(timer_clock_cfg);
+    mcpwm.timer2.start(timer_clock_cfg);
 
     loop {
         println!("min");
-        pwm_pin.set_timestamp(get_pulse(0));
+        servo_x.set_timestamp(get_pulse(0));
+        servo_y.set_timestamp(get_pulse(0));
+        servo_z.set_timestamp(get_pulse(0));
         delay.delay_millis(2000);
         println!("zero");
-        pwm_pin.set_timestamp(get_pulse(90));
+        servo_x.set_timestamp(get_pulse(90));
+        servo_y.set_timestamp(get_pulse(90));
+        servo_z.set_timestamp(get_pulse(90));
         delay.delay_millis(2000);
         println!("max");
-        pwm_pin.set_timestamp(get_pulse(180));
+        servo_x.set_timestamp(get_pulse(180));
+        servo_y.set_timestamp(get_pulse(180));
+        servo_z.set_timestamp(get_pulse(180));
         delay.delay_millis(2000);
     }
 }
