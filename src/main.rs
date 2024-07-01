@@ -12,18 +12,86 @@ use esp_hal::{
 };
 use esp_println::println;
 
+type Angle = i32;
+type Distance = i32;
+
+struct ArmCoordinates {
+    phi: Angle,
+    alpha: Angle,
+    beta: Angle,
+}
+
+const ARM_ZERO: ArmCoordinates = ArmCoordinates {
+    phi: 0,
+    alpha: 10,
+    beta: 0,
+};
+
+// unit distance is hundredths of arm length (70mm)
+// so the total possible range is at a radius 200 from the base
+struct CartesianCoordinates {
+    x: Distance,
+    y: Distance,
+    z: Distance,
+}
+
+// integer square root
+fn sqrt(x: i32) -> i32 {
+    let mut result = 0;
+    while (result + 1) * (result + 1) <= x {
+        result += 1;
+    }
+    result
+}
+
+// power series for arcsin and arccos
+fn arcsin(x: i32) -> i32 {
+    let precision = 100;
+    // 57 is rad to degree conversion
+    // integer division -- TODO see if there is a better way
+    (57 * ((x + i32::pow(x, 3)) * precision / 6 + (3 * i32::pow(x, 5) * precision) / 40))
+        / precision
+}
+
+fn sin(x: i32) -> i32 {
+    (x - i32::pow(x, 3) / i32::pow(57, 2) / 6 + i32::pow(x, 5) / 120 / i32::pow(57, 4)) / 57
+}
+
+fn euclidian_distance(x: &CartesianCoordinates) -> i32 {
+    sqrt(x.x * x.x + x.y * x.y + x.z * x.z)
+}
+
+fn solve(target: CartesianCoordinates) -> ArmCoordinates {
+    let r = euclidian_distance(&target);
+
+    // calculate phi -> phi
+    let phi = arcsin(target.y / r);
+
+    // calculate r -> beta + the neutral position of alpha
+    // FIXME don't think this is correct
+    let beta = r / 100;
+
+    println!("r: {} phi: {}  beta: {}", r, phi, beta);
+
+    // calculate theta
+
+    // alpha is alpha_neutral + theta
+
+    // subtract the calibrated zero
+    ARM_ZERO
+}
+
 fn get_pulse(angle: i32) -> u16 {
-    if angle > 180 || angle < 0 {
+    if !(0..180).contains(&angle) {
         panic!("angle OOB");
     }
 
     let min = 50;
     let max = 250;
 
-    let scaled_angle = angle as i32 * 1000;
+    let scaled_angle = angle * 1000;
     let percentage = (scaled_angle + 90) / 180;
     let res = min + ((max - min) * percentage) / 1000;
-    println!("{}", res);
     res as u16
 }
 
@@ -68,15 +136,20 @@ fn main() -> ! {
     mcpwm.timer1.start(timer_clock_cfg);
     mcpwm.timer2.start(timer_clock_cfg);
 
-    loop {
-        println!("min");
-        phi.set_timestamp(get_pulse(0));
-        delay.delay_millis(2000);
-        println!("zero");
-        phi.set_timestamp(get_pulse(90));
-        delay.delay_millis(2000);
-        println!("max");
-        phi.set_timestamp(get_pulse(180));
-        delay.delay_millis(2000);
-    }
+    let mut travel = |coordinates: ArmCoordinates| {
+        phi.set_timestamp(get_pulse(coordinates.phi));
+        alpha.set_timestamp(get_pulse(coordinates.alpha));
+        beta.set_timestamp(get_pulse(coordinates.beta));
+    };
+
+    println!("ZERO");
+    travel(ARM_ZERO);
+
+    println!("testing math");
+    solve(CartesianCoordinates {
+        x: 100,
+        y: 100,
+        z: 100,
+    });
+    loop {}
 }
