@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use core::ops::Add;
 use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
@@ -15,10 +16,23 @@ use esp_println::println;
 type Angle = i32;
 type Distance = i32;
 
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct ArmCoordinates {
     phi: Angle,
     alpha: Angle,
     beta: Angle,
+}
+
+impl Add for ArmCoordinates {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+            phi: self.phi + other.phi,
+            alpha: self.alpha + other.alpha,
+            beta: self.beta + other.beta,
+        }
+    }
 }
 
 const ARM_ZERO: ArmCoordinates = ArmCoordinates {
@@ -26,6 +40,10 @@ const ARM_ZERO: ArmCoordinates = ArmCoordinates {
     alpha: 10,
     beta: 0,
 };
+
+fn calibrated(raw: ArmCoordinates) -> ArmCoordinates {
+    raw + ARM_ZERO
+}
 
 // unit distance is hundredths of arm length (70mm)
 // so the total possible range is at a radius 200 from the base
@@ -104,7 +122,7 @@ fn main() -> ! {
     let delay = Delay::new(&clocks);
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-    let pin0 = io.pins.gpio0;
+    let pin0 = io.pins.gpio10;
     let pin1 = io.pins.gpio7;
     let pin2 = io.pins.gpio5;
 
@@ -136,20 +154,21 @@ fn main() -> ! {
     mcpwm.timer1.start(timer_clock_cfg);
     mcpwm.timer2.start(timer_clock_cfg);
 
-    let mut travel = |coordinates: ArmCoordinates| {
+    let mut travel = |coordinates: &ArmCoordinates| {
         phi.set_timestamp(get_pulse(coordinates.phi));
         alpha.set_timestamp(get_pulse(coordinates.alpha));
         beta.set_timestamp(get_pulse(coordinates.beta));
     };
 
     println!("ZERO");
-    travel(ARM_ZERO);
+    travel(&ARM_ZERO);
+    let ninety = ArmCoordinates {
+        phi: 90,
+        alpha: 90,
+        beta: 90,
+    };
 
-    println!("testing math");
-    solve(CartesianCoordinates {
-        x: 100,
-        y: 100,
-        z: 100,
-    });
-    loop {}
+    loop {
+        travel(&calibrated(ninety));
+    }
 }
