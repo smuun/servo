@@ -100,14 +100,18 @@ fn solve(target: CartesianCoordinates) -> ArmCoordinates {
 }
 
 fn get_pulse(angle: i32) -> u16 {
-    if !(0..180).contains(&angle) {
-        panic!("angle OOB");
-    }
+    let bounded_angle = if 0 < angle {
+        0
+    } else if 180 > angle {
+        180
+    } else {
+        angle
+    };
 
     let min = 50;
     let max = 250;
 
-    let scaled_angle = angle * 1000;
+    let scaled_angle = bounded_angle * 1000;
     let percentage = (scaled_angle + 90) / 180;
     let res = min + ((max - min) * percentage) / 1000;
     res as u16
@@ -160,15 +164,35 @@ fn main() -> ! {
         beta.set_timestamp(get_pulse(coordinates.beta));
     };
 
-    println!("ZERO");
-    travel(&ARM_ZERO);
+    let sleep = || {
+        delay.delay_millis(1_000);
+    };
+
+    let zero = ArmCoordinates {
+        phi: 0,
+        alpha: 0,
+        beta: 0,
+    };
     let ninety = ArmCoordinates {
         phi: 90,
         alpha: 90,
         beta: 90,
     };
+    let max = ArmCoordinates {
+        phi: 179,
+        alpha: 179,
+        beta: 179,
+    };
 
     loop {
+        println!("1");
+        travel(&calibrated(zero));
+        sleep();
+        println!("2");
         travel(&calibrated(ninety));
+        sleep();
+        println!("3");
+        travel(&calibrated(max));
+        sleep();
     }
 }
