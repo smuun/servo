@@ -131,7 +131,10 @@ fn main() -> ! {
     let pin1 = io.pins.gpio7;
     let pin2 = io.pins.gpio5;
 
-    let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX);
+    let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX / 35);
+    // let clock_cfg = PeripheralClockConfig::with_frequency(&clocks, 49.Hz()).unwrap();
+
+    dbg!(clock_cfg.frequency());
 
     let mut mcpwm = McPwm::new(peripherals.MCPWM0, clock_cfg);
 
