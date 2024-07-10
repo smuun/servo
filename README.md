@@ -2,9 +2,11 @@
 
 ## Dev notes
 
-- [ ] refactor: peripherals init
-- [ ] refactor: atomic functions
-- [ ] implement 3 concurrent servo signals
-- [ ] implement magnetometer controls angle
-- [ ] build arm structure
-- [ ] implement arm tracks magnet position
+TODO:
+- cartesian -> arm coordinates (math should be correct but unfortunately can't see how to avoid floats)
+- slow sweep to target angle
+- (very simple) onboard path planning to avoid collisions
+
+Ideas:
+- closed loop control of effector position w/ magnetometer
+- 
