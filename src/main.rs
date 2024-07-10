@@ -6,12 +6,13 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
-    gpio::IO,
-    mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, PeripheralClockConfig, MCPWM},
+    gpio::Io,
+    mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
     peripherals::Peripherals,
     prelude::*,
+    system::SystemControl,
 };
-use esp_println::println;
+use esp_println::{dbg, println};
 
 type Angle = i32;
 type Distance = i32;
@@ -100,9 +101,9 @@ fn solve(target: CartesianCoordinates) -> ArmCoordinates {
 }
 
 fn get_pulse(angle: i32) -> u16 {
-    let bounded_angle = if 0 < angle {
+    let bounded_angle = if 0 > angle {
         0
-    } else if 180 > angle {
+    } else if 180 < angle {
         180
     } else {
         angle
@@ -120,19 +121,19 @@ fn get_pulse(angle: i32) -> u16 {
 #[entry]
 fn main() -> ! {
     let peripherals = Peripherals::take();
-    let system = peripherals.SYSTEM.split();
+    let system = SystemControl::new(peripherals.SYSTEM);
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
     let delay = Delay::new(&clocks);
 
-    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
-    let pin0 = io.pins.gpio10;
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+    let pin0 = io.pins.gpio6;
     let pin1 = io.pins.gpio7;
     let pin2 = io.pins.gpio5;
 
     let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX);
 
-    let mut mcpwm = MCPWM::new(peripherals.MCPWM0, clock_cfg);
+    let mut mcpwm = McPwm::new(peripherals.MCPWM0, clock_cfg);
 
     mcpwm.operator0.set_timer(&mcpwm.timer0);
     let mut beta = mcpwm
@@ -185,13 +186,13 @@ fn main() -> ! {
     };
 
     loop {
-        println!("1");
+        dbg!(calibrated(zero));
         travel(&calibrated(zero));
         sleep();
-        println!("2");
+        dbg!(calibrated(ninety));
         travel(&calibrated(ninety));
         sleep();
-        println!("3");
+        dbg!(calibrated(max));
         travel(&calibrated(max));
         sleep();
     }
