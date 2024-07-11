@@ -13,9 +13,10 @@ use esp_hal::{
     system::SystemControl,
 };
 use esp_println::{dbg, println};
+use micromath::F32Ext;
 
-type Angle = i32;
-type Distance = i32;
+type Angle = f32;
+type Distance = f32;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct ArmCoordinates {
@@ -37,9 +38,9 @@ impl Add for ArmCoordinates {
 }
 
 const ARM_ZERO: ArmCoordinates = ArmCoordinates {
-    phi: 0,
-    alpha: 10,
-    beta: 0,
+    phi: 0.0,
+    alpha: 0.0,
+    beta: 0.0,
 };
 
 fn calibrated(raw: ArmCoordinates) -> ArmCoordinates {
@@ -54,68 +55,48 @@ struct CartesianCoordinates {
     z: Distance,
 }
 
-// integer square root
-fn sqrt(x: i32) -> i32 {
-    let mut result = 0;
-    while (result + 1) * (result + 1) <= x {
-        result += 1;
-    }
-    result
-}
-
-// power series for arcsin and arccos
-fn arcsin(x: i32) -> i32 {
-    let precision = 100;
-    // 57 is rad to degree conversion
-    // integer division -- TODO see if there is a better way
-    (57 * ((x + i32::pow(x, 3)) * precision / 6 + (3 * i32::pow(x, 5) * precision) / 40))
-        / precision
-}
-
-fn sin(x: i32) -> i32 {
-    (x - i32::pow(x, 3) / i32::pow(57, 2) / 6 + i32::pow(x, 5) / 120 / i32::pow(57, 4)) / 57
-}
-
-fn euclidian_distance(x: &CartesianCoordinates) -> i32 {
-    sqrt(x.x * x.x + x.y * x.y + x.z * x.z)
+fn euclidian_distance(x: &CartesianCoordinates) -> Distance {
+    f32::sqrt(x.x * x.x + x.y * x.y + x.z * x.z)
 }
 
 fn solve(target: CartesianCoordinates) -> ArmCoordinates {
     let r = euclidian_distance(&target);
 
     // calculate phi -> phi
-    let phi = arcsin(target.y / r);
+    let phi = f32::asin(target.y / r);
 
     // calculate r -> beta + the neutral position of alpha
     // FIXME don't think this is correct
-    let beta = r / 100;
+    let beta = r;
+    let alpha_neutral = 0.0;
 
     println!("r: {} phi: {}  beta: {}", r, phi, beta);
 
     // calculate theta
+    let theta = 0.0;
 
     // alpha is alpha_neutral + theta
+    let alpha = alpha_neutral + theta;
 
     // subtract the calibrated zero
-    ARM_ZERO
+    ARM_ZERO + ArmCoordinates { phi, alpha, beta }
 }
 
-fn get_pulse(angle: i32) -> u16 {
-    let bounded_angle = if 0 > angle {
-        0
-    } else if 180 < angle {
-        180
+fn get_pulse(angle: Angle) -> u16 {
+    let bounded_angle = if 0.0 > angle {
+        0.0
+    } else if 180.0 < angle {
+        180.0
     } else {
         angle
     };
 
-    let min = 50;
-    let max = 250;
+    const ZERO_PULSE: i32 = 50;
+    const MAX_PULSE: i32 = 250;
 
-    let scaled_angle = bounded_angle * 1000;
-    let percentage = (scaled_angle + 90) / 180;
-    let res = min + ((max - min) * percentage) / 1000;
-    res as u16
+    let percentage = bounded_angle / 180.0;
+    let pulse = f32::ceil((MAX_PULSE - ZERO_PULSE) as f32 * percentage) as i32;
+    (ZERO_PULSE + pulse) as u16
 }
 
 #[entry]
@@ -173,19 +154,19 @@ fn main() -> ! {
     };
 
     let zero = ArmCoordinates {
-        phi: 0,
-        alpha: 0,
-        beta: 0,
+        phi: 0.0,
+        alpha: 0.0,
+        beta: 0.0,
     };
     let ninety = ArmCoordinates {
-        phi: 90,
-        alpha: 90,
-        beta: 90,
+        phi: 90.0,
+        alpha: 90.0,
+        beta: 90.0,
     };
     let max = ArmCoordinates {
-        phi: 179,
-        alpha: 179,
-        beta: 179,
+        phi: 179.0,
+        alpha: 179.0,
+        beta: 179.0,
     };
 
     loop {
