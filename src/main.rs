@@ -39,7 +39,7 @@ impl Add for ArmCoordinates {
 
 const ARM_ZERO: ArmCoordinates = ArmCoordinates {
     phi: 0.0,
-    alpha: 0.0,
+    alpha: 5.0,
     beta: 0.0,
 };
 
@@ -49,6 +49,7 @@ fn calibrated(raw: ArmCoordinates) -> ArmCoordinates {
 
 // unit distance is hundredths of arm length (70mm)
 // so the total possible range is at a radius 200 from the base
+#[derive(Debug, Copy, Clone, PartialEq)]
 struct CartesianCoordinates {
     x: Distance,
     y: Distance,
@@ -59,27 +60,24 @@ fn euclidian_distance(x: &CartesianCoordinates) -> Distance {
     f32::sqrt(x.x * x.x + x.y * x.y + x.z * x.z)
 }
 
-fn solve(target: CartesianCoordinates) -> ArmCoordinates {
-    let r = euclidian_distance(&target);
+fn solve(target: &CartesianCoordinates) -> ArmCoordinates {
+    let r = euclidian_distance(target);
 
-    // calculate phi -> phi
-    let phi = f32::asin(target.y / r);
+    // define the unit
+    const L1: f32 = 5.0;
+    const L2: f32 = 5.0;
 
-    // calculate r -> beta + the neutral position of alpha
-    // FIXME don't think this is correct
-    let beta = r;
-    let alpha_neutral = 0.0;
+    // law of cosines
+    let beta = f32::to_degrees(f32::acos((L1 * L1 + L2 * L2 - r * r) / (-2.0 * L1 * L2)));
+    let alpha_base = f32::to_degrees(f32::acos((L1 * L1 + r * r - L2 * L2) / (-2.0 * r * L1)));
 
-    println!("r: {} phi: {}  beta: {}", r, phi, beta);
+    // simple trig
+    let alpha_elev = f32::to_degrees(f32::asin(target.z / r));
+    let phi = f32::to_degrees(f32::acos(target.x / r));
 
-    // calculate theta
-    let theta = 0.0;
+    let alpha = alpha_base + alpha_elev;
 
-    // alpha is alpha_neutral + theta
-    let alpha = alpha_neutral + theta;
-
-    // subtract the calibrated zero
-    ARM_ZERO + ArmCoordinates { phi, alpha, beta }
+    ArmCoordinates { phi, alpha, beta }
 }
 
 fn get_pulse(angle: Angle) -> u16 {
@@ -108,8 +106,8 @@ fn main() -> ! {
     let delay = Delay::new(&clocks);
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let pin0 = io.pins.gpio6;
-    let pin1 = io.pins.gpio7;
+    let pin0 = io.pins.gpio7;
+    let pin1 = io.pins.gpio6;
     let pin2 = io.pins.gpio5;
 
     let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX / 35);
@@ -150,12 +148,12 @@ fn main() -> ! {
     };
 
     let sleep = || {
-        delay.delay_millis(1_000);
+        delay.delay_millis(5_000);
     };
 
     let zero = ArmCoordinates {
         phi: 0.0,
-        alpha: 0.0,
+        alpha: 90.0,
         beta: 0.0,
     };
     let ninety = ArmCoordinates {
@@ -169,15 +167,17 @@ fn main() -> ! {
         beta: 179.0,
     };
 
-    loop {
-        dbg!(calibrated(zero));
-        travel(&calibrated(zero));
-        sleep();
-        dbg!(calibrated(ninety));
-        travel(&calibrated(ninety));
-        sleep();
-        dbg!(calibrated(max));
-        travel(&calibrated(max));
-        sleep();
-    }
+    dbg!(calibrated(zero));
+    travel(&calibrated(zero));
+    sleep();
+
+    let target = CartesianCoordinates {
+        x: 0.01,
+        y: 0.01,
+        z: 9.0,
+    };
+    dbg!(target);
+    dbg!(solve(&target));
+
+    loop {}
 }
