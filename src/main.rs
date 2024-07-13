@@ -61,20 +61,51 @@ fn euclidian_distance(x: &CartesianCoordinates) -> Distance {
 }
 
 fn solve(target: &CartesianCoordinates) -> ArmCoordinates {
-    let r = euclidian_distance(target);
+    let epsilon = 1e-6; // Small value to avoid issues at the origin
+    let r_raw = euclidian_distance(target);
 
-    // define the unit
-    const L1: f32 = 5.0;
-    const L2: f32 = 5.0;
+    // define the unit lengths of the arms
+    const L1: f32 = 0.5;
+    const L2: f32 = 0.5;
 
-    // law of cosines
-    let beta = f32::to_degrees(f32::acos((L1 * L1 + L2 * L2 - r * r) / (-2.0 * L1 * L2)));
-    let alpha_base = f32::to_degrees(f32::acos((L1 * L1 + r * r - L2 * L2) / (-2.0 * r * L1)));
+    let r_max = L1 + L2 - epsilon;
 
-    // simple trig
-    let alpha_elev = f32::to_degrees(f32::asin(target.z / r));
-    let phi = f32::to_degrees(f32::acos(target.x / r));
+    // if we're trying to go too far,
+    let r = if r_raw < r_max {
+        r_raw
+    } else {
+        println! {"{r_raw} too far, setting r = {r_max}"};
+        r_max
+    };
 
+    // law of cosines for beta
+    let beta = if r < epsilon {
+        epsilon
+    } else {
+        f32::to_degrees(f32::acos((L1 * L1 + L2 * L2 - r * r) / (2.0 * L1 * L2)))
+    };
+
+    // law of cosines for alpha_base
+    let alpha_base = if r < epsilon {
+        epsilon
+    } else {
+        f32::to_degrees(f32::acos((L1 * L1 + r * r - L2 * L2) / (2.0 * r * L1)))
+    };
+
+    // simple trig for elevation and rotation angles
+    let alpha_elev = if r < epsilon {
+        epsilon
+    } else {
+        f32::to_degrees(f32::asin(target.z / r))
+    };
+    let phi_calculated = f32::to_degrees(f32::atan2(target.y, target.x));
+    let phi = if f32::is_nan(phi_calculated) {
+        epsilon
+    } else {
+        phi_calculated
+    };
+
+    // combine base and elevation angles for alpha
     let alpha = alpha_base + alpha_elev;
 
     ArmCoordinates { phi, alpha, beta }
@@ -82,8 +113,10 @@ fn solve(target: &CartesianCoordinates) -> ArmCoordinates {
 
 fn get_pulse(angle: Angle) -> u16 {
     let bounded_angle = if 0.0 > angle {
+        println!("clamping {angle} to 0");
         0.0
     } else if 180.0 < angle {
+        println!("clamping {angle} to 180");
         180.0
     } else {
         angle
@@ -141,43 +174,83 @@ fn main() -> ! {
     mcpwm.timer1.start(timer_clock_cfg);
     mcpwm.timer2.start(timer_clock_cfg);
 
-    let mut travel = |coordinates: &ArmCoordinates| {
-        phi.set_timestamp(get_pulse(coordinates.phi));
-        alpha.set_timestamp(get_pulse(coordinates.alpha));
-        beta.set_timestamp(get_pulse(coordinates.beta));
-    };
+    enum Direction {
+        Go,
+        Return,
+    }
 
-    let sleep = || {
-        delay.delay_millis(5_000);
-    };
-
-    let zero = ArmCoordinates {
+    let safe_travel = calibrated(ArmCoordinates {
         phi: 0.0,
         alpha: 90.0,
         beta: 0.0,
-    };
-    let ninety = ArmCoordinates {
-        phi: 90.0,
-        alpha: 90.0,
-        beta: 90.0,
-    };
-    let max = ArmCoordinates {
-        phi: 179.0,
-        alpha: 179.0,
-        beta: 179.0,
+    });
+
+    let mut set_timestamps = |coordinates: &ArmCoordinates, direction: Direction| {
+        match direction {
+            Direction::Go => {
+                beta.set_timestamp(get_pulse(coordinates.beta));
+                delay.delay_millis(200);
+                alpha.set_timestamp(get_pulse(coordinates.alpha));
+                phi.set_timestamp(get_pulse(coordinates.phi));
+            }
+
+            Direction::Return => {
+                alpha.set_timestamp(get_pulse(coordinates.alpha));
+                delay.delay_millis(200);
+                beta.set_timestamp(get_pulse(coordinates.beta));
+                phi.set_timestamp(get_pulse(coordinates.phi));
+            }
+        };
     };
 
-    dbg!(calibrated(zero));
-    travel(&calibrated(zero));
-    sleep();
-
-    let target = CartesianCoordinates {
-        x: 0.01,
-        y: 0.01,
-        z: 9.0,
+    let mut travel = |coordinates: &ArmCoordinates| {
+        set_timestamps(&safe_travel, Direction::Return);
+        delay.delay_millis(500);
+        set_timestamps(coordinates, Direction::Go);
     };
-    dbg!(target);
-    dbg!(solve(&target));
+
+    let mut run_tests = || {
+        let test_points = [
+            CartesianCoordinates {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            CartesianCoordinates {
+                x: 0.99,
+                y: 0.,
+                z: 0.,
+            },
+            CartesianCoordinates {
+                x: 100.,
+                y: 0.,
+                z: 0.,
+            },
+            CartesianCoordinates {
+                x: 0.,
+                y: 0.99,
+                z: 0.,
+            },
+            CartesianCoordinates {
+                x: 0.,
+                y: 0.,
+                z: 0.99,
+            },
+            CartesianCoordinates {
+                x: 0.576,
+                y: 0.576,
+                z: 0.576,
+            },
+        ];
+        for target_cartesian in test_points {
+            delay.delay_millis(1_000);
+            dbg!(target_cartesian);
+            let target_arm = solve(&target_cartesian);
+            dbg!(target_arm);
+            travel(&calibrated(target_arm));
+        }
+    };
+    run_tests();
 
     loop {}
 }
