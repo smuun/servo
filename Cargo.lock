@@ -983,6 +983,7 @@ dependencies = [
 name = "servo"
 version = "0.1.0"
 dependencies = [
+ "critical-section",
  "embedded-io",
  "embedded-svc",
  "esp-alloc",
