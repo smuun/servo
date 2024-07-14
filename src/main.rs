@@ -8,9 +8,13 @@ use esp_backtrace as _;
 use esp_hal::{
     clock::ClockControl,
     delay::Delay,
-    gpio::Io,
-    mcpwm::{operator::PwmPinConfig, timer::PwmWorkingMode, McPwm, PeripheralClockConfig},
-    peripherals::Peripherals,
+    gpio::{GpioPin, Io},
+    mcpwm::{
+        operator::{PwmPin, PwmPinConfig},
+        timer::PwmWorkingMode,
+        McPwm, PeripheralClockConfig,
+    },
+    peripherals::{Peripherals, MCPWM0},
     prelude::*,
     system::SystemControl,
 };
@@ -116,9 +120,6 @@ enum Direction {
     Return,
 }
 
-static SYSTEM: Mutex<RefCell<Option<esp_hal::system::SystemControl>>> =
-    Mutex::new(RefCell::new(None));
-
 fn get_pulse(angle: Angle) -> u16 {
     let bounded_angle = if 0.0 > angle {
         println!("clamping {angle} to 0");
@@ -138,19 +139,36 @@ fn get_pulse(angle: Angle) -> u16 {
     (ZERO_PULSE + pulse) as u16
 }
 
-#[entry]
-fn main() -> ! {
+struct Device<'a> {
+    system: esp_hal::system::SystemControl<'a>,
+}
+
+static DEVICE: Mutex<RefCell<Option<Device>>> = Mutex::new(RefCell::new(None));
+
+struct Joints<'a> {
+    phi: PwmPin<'a, GpioPin<5>, MCPWM0, 2, true>,
+    alpha: PwmPin<'a, GpioPin<6>, MCPWM0, 1, true>,
+    beta: PwmPin<'a, GpioPin<7>, MCPWM0, 0, true>,
+}
+
+static JOINTS: Mutex<RefCell<Option<Joints>>> = Mutex::new(RefCell::new(None));
+static DELAY: Mutex<RefCell<Option<Delay>>> = Mutex::new(RefCell::new(None));
+
+fn init_system() {
     critical_section::with(|cs| {
         let peripherals = Peripherals::take();
         let system = SystemControl::new(peripherals.SYSTEM);
 
-        SYSTEM.borrow_ref_mut(cs).replace(system);
+        DEVICE.borrow_ref_mut(cs).replace(Device { system });
 
-        let mut binding = SYSTEM.borrow_ref_mut(cs);
-        let mut tmp = binding.as_mut().unwrap();
+        let mut device_binding = DEVICE.borrow_ref_mut(cs);
+        let device = device_binding.as_mut().unwrap();
 
-        let clocks = ClockControl::boot_defaults(&mut tmp.clock_control).freeze();
+        let clocks = ClockControl::boot_defaults(&mut device.system.clock_control).freeze();
+
         let delay = Delay::new(&clocks);
+        DELAY.borrow_ref_mut(cs).replace(delay);
+
         let clock_cfg = PeripheralClockConfig::with_prescaler(&clocks, u8::MAX / 35);
         dbg!(clock_cfg.frequency());
 
@@ -162,17 +180,17 @@ fn main() -> ! {
         let mut mcpwm = McPwm::new(peripherals.MCPWM0, clock_cfg);
 
         mcpwm.operator0.set_timer(&mcpwm.timer0);
-        let mut beta = mcpwm
+        let beta = mcpwm
             .operator0
             .with_pin_a(pin0, PwmPinConfig::UP_ACTIVE_HIGH);
 
         mcpwm.operator1.set_timer(&mcpwm.timer1);
-        let mut alpha = mcpwm
+        let alpha = mcpwm
             .operator1
             .with_pin_a(pin1, PwmPinConfig::UP_ACTIVE_HIGH);
 
         mcpwm.operator2.set_timer(&mcpwm.timer2);
-        let mut phi = mcpwm
+        let phi = mcpwm
             .operator2
             .with_pin_a(pin2, PwmPinConfig::UP_ACTIVE_HIGH);
 
@@ -185,79 +203,94 @@ fn main() -> ! {
         mcpwm.timer1.start(timer_clock_cfg);
         mcpwm.timer2.start(timer_clock_cfg);
 
-        let safe_travel = calibrated(ArmCoordinates {
-            phi: 0.0,
-            alpha: 90.0,
-            beta: 0.0,
-        });
+        JOINTS
+            .borrow_ref_mut(cs)
+            .replace(Joints { phi, alpha, beta });
+    });
+}
 
-        let mut set_timestamps = |coordinates: &ArmCoordinates, direction: Direction| {
-            match direction {
-                Direction::Go => {
-                    beta.set_timestamp(get_pulse(coordinates.beta));
-                    delay.delay_millis(200);
-                    alpha.set_timestamp(get_pulse(coordinates.alpha));
-                    phi.set_timestamp(get_pulse(coordinates.phi));
-                }
+fn set_timestamps(coordinates: &ArmCoordinates, direction: Direction) {
+    let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
+    critical_section::with(|cs| {
+        let mut joints_binding = JOINTS.borrow_ref_mut(cs);
+        let joints = joints_binding.as_mut().unwrap();
+        match direction {
+            Direction::Go => {
+                joints.beta.set_timestamp(get_pulse(coordinates.beta));
+                delay.delay_millis(200);
+                joints.alpha.set_timestamp(get_pulse(coordinates.alpha));
+                joints.phi.set_timestamp(get_pulse(coordinates.phi));
+            }
 
-                Direction::Return => {
-                    alpha.set_timestamp(get_pulse(coordinates.alpha));
-                    delay.delay_millis(200);
-                    beta.set_timestamp(get_pulse(coordinates.beta));
-                    phi.set_timestamp(get_pulse(coordinates.phi));
-                }
-            };
-        };
-
-        let mut travel = |coordinates: &ArmCoordinates| {
-            set_timestamps(&safe_travel, Direction::Return);
-            delay.delay_millis(500);
-            set_timestamps(coordinates, Direction::Go);
-        };
-
-        let mut run_tests = || {
-            let test_points = [
-                CartesianCoordinates {
-                    x: 0.,
-                    y: 0.,
-                    z: 0.,
-                },
-                CartesianCoordinates {
-                    x: 0.99,
-                    y: 0.,
-                    z: 0.,
-                },
-                CartesianCoordinates {
-                    x: 100.,
-                    y: 0.,
-                    z: 0.,
-                },
-                CartesianCoordinates {
-                    x: 0.,
-                    y: 0.99,
-                    z: 0.,
-                },
-                CartesianCoordinates {
-                    x: 0.,
-                    y: 0.,
-                    z: 0.99,
-                },
-                CartesianCoordinates {
-                    x: 0.576,
-                    y: 0.576,
-                    z: 0.576,
-                },
-            ];
-            for target_cartesian in test_points {
-                delay.delay_millis(1_000);
-                dbg!(target_cartesian);
-                let target_arm = solve(&target_cartesian);
-                dbg!(target_arm);
-                travel(&calibrated(target_arm));
+            Direction::Return => {
+                joints.alpha.set_timestamp(get_pulse(coordinates.alpha));
+                delay.delay_millis(200);
+                joints.beta.set_timestamp(get_pulse(coordinates.beta));
+                joints.phi.set_timestamp(get_pulse(coordinates.phi));
             }
         };
-        run_tests();
     });
+}
 
-    loop {}
+fn travel(coordinates: &ArmCoordinates) {
+    let safe_travel = calibrated(ArmCoordinates {
+        phi: 0.0,
+        alpha: 90.0,
+        beta: 0.0,
+    });
+    let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
+    set_timestamps(&safe_travel, Direction::Return);
+    delay.delay_millis(500);
+    set_timestamps(coordinates, Direction::Go);
+}
+
+fn sweep_rom() {
+    let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
+    let test_points = [
+        CartesianCoordinates {
+            x: 0.,
+            y: 0.,
+            z: 0.,
+        },
+        CartesianCoordinates {
+            x: 0.99,
+            y: 0.,
+            z: 0.,
+        },
+        CartesianCoordinates {
+            x: 100.,
+            y: 0.,
+            z: 0.,
+        },
+        CartesianCoordinates {
+            x: 0.,
+            y: 0.99,
+            z: 0.,
+        },
+        CartesianCoordinates {
+            x: 0.,
+            y: 0.,
+            z: 0.99,
+        },
+        CartesianCoordinates {
+            x: 0.576,
+            y: 0.576,
+            z: 0.576,
+        },
+    ];
+    for target_cartesian in test_points {
+        delay.delay_millis(1_000);
+        dbg!(target_cartesian);
+        let target_arm = solve(&target_cartesian);
+        dbg!(target_arm);
+        travel(&calibrated(target_arm));
+    }
+}
+
+#[entry]
+fn main() -> ! {
+    init_system();
+
+    sweep_rom();
+    panic!();
 }
