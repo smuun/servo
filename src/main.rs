@@ -218,7 +218,7 @@ fn get_pulse(angle: Angle) -> u16 {
         angle
     };
 
-    const ZERO_PULSE: i32 = 100;
+    const ZERO_PULSE: i32 = 50;
     const MAX_PULSE: i32 = 250;
 
     let percentage = bounded_angle / 180.0;
@@ -240,7 +240,7 @@ fn set_timestamps(coordinates: &ArmCoordinates) {
 
 static CURRENT_COORDINATES: Mutex<RefCell<Option<ArmCoordinates>>> = Mutex::new(RefCell::new(None));
 
-const DEGREES_PER_US: u32 = 250_000_000;
+const DEGREES_PER_SECOND: f32 = 150.0;
 const FRAME_US: u32 = 100;
 
 fn get_current() -> ArmCoordinates {
@@ -258,15 +258,13 @@ fn init_arm() {
         beta: 0.,
     }));
     println!("arm initialized to 0");
-    dbg!(get_current());
-    panic!();
 }
 
 fn step_until(end: ArmCoordinates) {
     let start = get_current();
     let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
 
-    let resolution = (DEGREES_PER_US / FRAME_US) as f32;
+    let resolution = DEGREES_PER_SECOND * (FRAME_US as f32 / 1e6);
     let difference = end - start;
 
     if f32::abs(difference.phi) <= resolution
@@ -307,7 +305,6 @@ fn step_until(end: ArmCoordinates) {
         }
     };
 
-    dbg!(modified);
     set_timestamps(&modified);
     delay.delay_micros(FRAME_US);
 
@@ -386,7 +383,6 @@ fn sweep_rom() {
         let target_arm = solve(&target_cartesian);
         dbg!(target_arm);
         travel(&target_arm);
-        dbg!(get_current());
         delay.delay_millis(3_000);
     }
 }
