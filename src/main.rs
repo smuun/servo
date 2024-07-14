@@ -2,7 +2,7 @@
 #![no_main]
 
 use core::cell::RefCell;
-use core::ops::Add;
+use core::ops::{Add, Sub};
 use critical_section::Mutex;
 use esp_backtrace as _;
 use esp_hal::{
@@ -20,6 +20,8 @@ use esp_hal::{
 };
 use esp_println::{dbg, println};
 use micromath::F32Ext;
+
+// coordinate math
 
 type Angle = f32;
 type Distance = f32;
@@ -43,10 +45,22 @@ impl Add for ArmCoordinates {
     }
 }
 
+impl Sub for ArmCoordinates {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self {
+            phi: self.phi - other.phi,
+            alpha: self.alpha - other.alpha,
+            beta: self.beta - other.beta,
+        }
+    }
+}
+
 const ARM_ZERO: ArmCoordinates = ArmCoordinates {
-    phi: 0.0,
-    alpha: 5.0,
-    beta: 0.0,
+    phi: 0.,
+    alpha: 5.,
+    beta: 0.,
 };
 
 fn calibrated(raw: ArmCoordinates) -> ArmCoordinates {
@@ -115,35 +129,11 @@ fn solve(target: &CartesianCoordinates) -> ArmCoordinates {
     ArmCoordinates { phi, alpha, beta }
 }
 
-enum Direction {
-    Go,
-    Return,
-}
-
-fn get_pulse(angle: Angle) -> u16 {
-    let bounded_angle = if 0.0 > angle {
-        println!("clamping {angle} to 0");
-        0.0
-    } else if 180.0 < angle {
-        println!("clamping {angle} to 180");
-        180.0
-    } else {
-        angle
-    };
-
-    const ZERO_PULSE: i32 = 50;
-    const MAX_PULSE: i32 = 250;
-
-    let percentage = bounded_angle / 180.0;
-    let pulse = f32::ceil((MAX_PULSE - ZERO_PULSE) as f32 * percentage) as i32;
-    (ZERO_PULSE + pulse) as u16
-}
+// hardware code
 
 struct Device<'a> {
     system: esp_hal::system::SystemControl<'a>,
 }
-
-static DEVICE: Mutex<RefCell<Option<Device>>> = Mutex::new(RefCell::new(None));
 
 struct Joints<'a> {
     phi: PwmPin<'a, GpioPin<5>, MCPWM0, 2, true>,
@@ -151,6 +141,7 @@ struct Joints<'a> {
     beta: PwmPin<'a, GpioPin<7>, MCPWM0, 0, true>,
 }
 
+static DEVICE: Mutex<RefCell<Option<Device>>> = Mutex::new(RefCell::new(None));
 static JOINTS: Mutex<RefCell<Option<Joints>>> = Mutex::new(RefCell::new(None));
 static DELAY: Mutex<RefCell<Option<Delay>>> = Mutex::new(RefCell::new(None));
 
@@ -209,39 +200,152 @@ fn init_system() {
     });
 }
 
-fn set_timestamps(coordinates: &ArmCoordinates, direction: Direction) {
-    let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
+// actual robot driver
+
+enum Direction {
+    Go,
+    Return,
+}
+
+fn get_pulse(angle: Angle) -> u16 {
+    let bounded_angle = if 0.0 > angle {
+        println!("clamping {angle} to 0");
+        0.0
+    } else if 180.0 < angle {
+        println!("clamping {angle} to 180");
+        180.0
+    } else {
+        angle
+    };
+
+    const ZERO_PULSE: i32 = 100;
+    const MAX_PULSE: i32 = 250;
+
+    let percentage = bounded_angle / 180.0;
+    let pulse = f32::ceil((MAX_PULSE - ZERO_PULSE) as f32 * percentage) as i32;
+    ZERO_PULSE as u16 + pulse as u16
+}
+
+// MUST BE CALLED WITH CALIBRATED COORDINATES
+fn set_timestamps(coordinates: &ArmCoordinates) {
     critical_section::with(|cs| {
         let mut joints_binding = JOINTS.borrow_ref_mut(cs);
         let joints = joints_binding.as_mut().unwrap();
-        match direction {
-            Direction::Go => {
-                joints.beta.set_timestamp(get_pulse(coordinates.beta));
-                delay.delay_millis(200);
-                joints.alpha.set_timestamp(get_pulse(coordinates.alpha));
-                joints.phi.set_timestamp(get_pulse(coordinates.phi));
-            }
-
-            Direction::Return => {
-                joints.alpha.set_timestamp(get_pulse(coordinates.alpha));
-                delay.delay_millis(200);
-                joints.beta.set_timestamp(get_pulse(coordinates.beta));
-                joints.phi.set_timestamp(get_pulse(coordinates.phi));
-            }
-        };
+        joints.alpha.set_timestamp(get_pulse(coordinates.alpha));
+        joints.beta.set_timestamp(get_pulse(coordinates.beta));
+        joints.phi.set_timestamp(get_pulse(coordinates.phi));
     });
+    set_current(*coordinates);
+}
+
+static CURRENT_COORDINATES: Mutex<RefCell<Option<ArmCoordinates>>> = Mutex::new(RefCell::new(None));
+
+const DEGREES_PER_US: u32 = 250_000_000;
+const FRAME_US: u32 = 100;
+
+fn get_current() -> ArmCoordinates {
+    critical_section::with(|cs| CURRENT_COORDINATES.borrow_ref(cs).unwrap())
+}
+
+fn set_current(coordinates: ArmCoordinates) {
+    critical_section::with(|cs| CURRENT_COORDINATES.borrow_ref_mut(cs).replace(coordinates));
+}
+
+fn init_arm() {
+    set_timestamps(&calibrated(ArmCoordinates {
+        phi: 0.,
+        alpha: 0.,
+        beta: 0.,
+    }));
+}
+
+fn step_until(end: ArmCoordinates) {
+    let start = get_current();
+    let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
+
+    let resolution = (DEGREES_PER_US / FRAME_US) as f32;
+    let difference = end - start;
+
+    if f32::abs(difference.phi) <= resolution
+        && f32::abs(difference.alpha) <= resolution
+        && f32::abs(difference.beta) <= resolution
+    {
+        set_timestamps(&end);
+        delay.delay_micros(FRAME_US);
+        return;
+    };
+
+    let mut modified = start.clone();
+
+    if f32::abs(difference.phi) > resolution {
+        if difference.phi > 0. {
+            modified.phi += resolution;
+        }
+        if difference.phi < 0. {
+            modified.phi -= resolution;
+        }
+    };
+
+    if f32::abs(difference.alpha) > resolution {
+        if difference.alpha > 0. {
+            modified.alpha += resolution;
+        }
+        if difference.alpha < 0. {
+            modified.alpha -= resolution;
+        }
+    };
+
+    if f32::abs(difference.beta) > resolution {
+        if difference.beta > 0. {
+            modified.beta += resolution;
+        }
+        if difference.beta < 0. {
+            modified.beta -= resolution;
+        }
+    };
+
+    set_timestamps(&modified);
+    delay.delay_micros(FRAME_US);
+
+    step_until(end)
+}
+
+// MUST BE CALLED WITH CALIBRATED COORDINATES
+fn travel_direct(coordinates: &ArmCoordinates, direction: Direction) {
+    let start = get_current();
+
+    match direction {
+        Direction::Go => {
+            // if we're Go ing, first set beta, then set alpha
+            let intermediate = ArmCoordinates {
+                phi: start.phi,
+                alpha: start.alpha,
+                beta: coordinates.beta,
+            };
+            step_until(intermediate);
+            step_until(*coordinates);
+        }
+        Direction::Return => {
+            // if we're Return ing, first set alpha, then set beta
+            let intermediate = ArmCoordinates {
+                phi: start.phi,
+                alpha: coordinates.alpha,
+                beta: start.beta,
+            };
+            step_until(intermediate);
+            step_until(*coordinates);
+        }
+    };
 }
 
 fn travel(coordinates: &ArmCoordinates) {
-    let safe_travel = calibrated(ArmCoordinates {
+    let safe_travel = &calibrated(ArmCoordinates {
         phi: 0.0,
         alpha: 90.0,
         beta: 0.0,
     });
-    let delay = critical_section::with(|cs| DELAY.borrow_ref(cs).unwrap());
-    set_timestamps(&safe_travel, Direction::Return);
-    delay.delay_millis(500);
-    set_timestamps(coordinates, Direction::Go);
+    travel_direct(safe_travel, Direction::Return);
+    travel_direct(&calibrated(*coordinates), Direction::Go);
 }
 
 fn sweep_rom() {
@@ -254,11 +358,6 @@ fn sweep_rom() {
         },
         CartesianCoordinates {
             x: 0.99,
-            y: 0.,
-            z: 0.,
-        },
-        CartesianCoordinates {
-            x: 100.,
             y: 0.,
             z: 0.,
         },
@@ -279,18 +378,26 @@ fn sweep_rom() {
         },
     ];
     for target_cartesian in test_points {
-        delay.delay_millis(1_000);
         dbg!(target_cartesian);
         let target_arm = solve(&target_cartesian);
         dbg!(target_arm);
-        travel(&calibrated(target_arm));
+        travel(&target_arm);
+        dbg!(get_current());
+        let tmp = calibrated(target_arm);
+        dbg!(get_pulse(tmp.phi));
+        dbg!(get_pulse(tmp.alpha));
+        dbg!(get_pulse(tmp.beta));
+        panic!();
+        delay.delay_millis(3_000);
     }
 }
 
+// main
 #[entry]
 fn main() -> ! {
     init_system();
-
+    init_arm();
     sweep_rom();
+
     panic!();
 }
