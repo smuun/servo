@@ -257,6 +257,9 @@ fn init_arm() {
         alpha: 0.,
         beta: 0.,
     }));
+    println!("arm initialized to 0");
+    dbg!(get_current());
+    panic!();
 }
 
 fn step_until(end: ArmCoordinates) {
@@ -304,6 +307,7 @@ fn step_until(end: ArmCoordinates) {
         }
     };
 
+    dbg!(modified);
     set_timestamps(&modified);
     delay.delay_micros(FRAME_US);
 
@@ -383,11 +387,6 @@ fn sweep_rom() {
         dbg!(target_arm);
         travel(&target_arm);
         dbg!(get_current());
-        let tmp = calibrated(target_arm);
-        dbg!(get_pulse(tmp.phi));
-        dbg!(get_pulse(tmp.alpha));
-        dbg!(get_pulse(tmp.beta));
-        panic!();
         delay.delay_millis(3_000);
     }
 }
